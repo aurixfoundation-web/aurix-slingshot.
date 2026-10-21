@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>AURIX SLINGSHOT 3D</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#07152b;color:white;font-family:system-ui,sans-serif;overflow:hidden}canvas{display:block;touch-action:none}
+#hud{position:fixed;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;gap:5px;z-index:2;pointer-events:none}
+.pill{background:#102744ed;border:1px solid #4b9aa7;border-radius:15px;padding:8px 10px;font-size:12px;font-weight:800}
+#menu{position:fixed;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:20px;background:#061329a8}
+.panel{width:min(420px,100%);padding:25px 22px;border-radius:24px;background:linear-gradient(145deg,#163c5a,#101b38);border:1px solid #69d9d3;text-align:center;box-shadow:0 15px 60px #0008}
+h1{font-size:38px;line-height:1.02;margin:0;color:#73f0df;text-shadow:0 4px #176b79}
+p{line-height:1.5;color:#d6e7f3;font-size:14px}
+button{width:100%;border:0;border-radius:14px;padding:15px;margin-top:9px;font-size:16px;font-weight:900;background:#73f0df;color:#082037;touch-action:manipulation}
+.secondary{background:#345577;color:white}.hide{display:none!important}
+#hint{position:fixed;bottom:12px;left:10px;right:10px;text-align:center;background:#07152bdc;padding:10px;border-radius:12px;font-size:12px;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="hud">
+ <div class="pill" id="lv">NÍVEL 1/15</div>
+ <div class="pill" id="ammo">DISPAROS 0/5</div>
+ <div class="pill" id="pts">PONTOS 0</div>
+</div>
+<div id="menu">
+ <div class="panel">
+  <h1 id="title">AURIX<br>SLINGSHOT</h1>
+  <p id="mission">Prepara a fisga! Derruba os alvos, destrói as estruturas e conquista os níveis.</p>
+  <p id="desc">Arrasta a bola para trás e larga para lançar. Aponta com cuidado: os disparos são limitados.</p>
+  <button id="play">JOGAR AGORA</button>
+  <button id="next" class="secondary hide">PRÓXIMO NÍVEL</button>
+  <button id="retry" class="secondary hide">REPETIR NÍVEL</button>
+ </div>
+</div>
+<div id="hint">Arrasta a bola dourada para trás e larga para disparar</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+(()=>{
+"use strict";
+const $=id=>document.getElementById(id);
+const menu=$('menu'),play=$('play'),next=$('next'),retry=$('retry');
+if(!window.THREE){
+ $('title').textContent='AURIX SLINGSHOT';
+ $('mission').textContent='Não foi possível carregar o motor gráfico 3D. Verifica a ligação à internet e abre esta página no Safari.';
+ play.textContent='TENTAR NOVAMENTE';
+ play.onclick=()=>location.reload();
+ return;
+}
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x8bd8ed);
+scene.fog=new THREE.Fog(0x8bd8ed,22,65);
+const camera=new THREE.PerspectiveCamera(48,innerWidth/innerHeight,.1,150);
+camera.position.set(0,7,19);camera.lookAt(0,3,0);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+document.body.insertBefore(renderer.domElement,document.body.firstChild);
+scene.add(new THREE.HemisphereLight(0xdaf7ff,0x506044,2.1));
+const sun=new THREE.DirectionalLight(0xfff1cf,3);
+sun.position.set(-7,14,9);sun.castShadow=true;scene.add(sun);
+sun.shadow.mapSize.set(1024,1024);
+const mat=(color,roughness=.7,metalness=0)=>new THREE.MeshStandardMaterial({color,roughness,metalness});
+const green=mat(0x57aa63),wood=mat(0xb97840),stone=mat(0x9ba9b9),glass= new THREE.MeshPhysicalMaterial({color:0x8cecff,roughness:.18,transparent:true,opacity:.68,metalness:.1}),gold=mat(0xffc83d,.32),dark=mat(0x583a30);
+const floor=new THREE.Mesh(new THREE.BoxGeometry(80,.5,20),green);floor.position.set(0,-.4,0);floor.receiveShadow=true;scene.add(floor);
+const hillmat=mat(0x39845d);
+for(let i=0;i<8;i++){let h=new THREE.Mesh(new THREE.SphereGeometry(2.8,16,12),hillmat);h.scale.set(1,.55,.6);h.position.set(-22+i*6,0.1,-8);scene.add(h);}
+const slingGroup=new THREE.Group();scene.add(slingGroup);
+function cylinderBetween(a,b,r,material){let d=new THREE.Vector3().subVectors(b,a),m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,d.length(),10),material);m.position.copy(a).add(b).multiplyScalar(.5);m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),d.normalize());m.castShadow=true;scene.add(m);return m;}
+const post1=new THREE.Vector3(-6.1,0,0),post2=new THREE.Vector3(-5.6,2.5,0),post3=new THREE.Vector3(-5.1,0,0);
+cylinderBetween(post1,post2,.17,wood);cylinderBetween(post2,post3,.17,wood);
+const bandmat=mat(0x352b38);
+let band=null;
+const ballGeo=new THREE.SphereGeometry(.42,24,18);
+function makeBall(){let m=new THREE.Mesh(ballGeo,gold);m.castShadow=true;scene.add(m);return m;}
+let ball=makeBall();
+const levels=[
+[1,5],[2,5],[2,4],[3,5],[3,4],[3,4],[4,5],[4,4],[4,4],[5,5],[5,4],[5,4],[6,5],[6,4],[7,5]
+];
+let level=0,shots=0,score=0,targets=[],blocks=[],debris=[],active=false,drag=false,flying=false,ended=false,won=false,vel=new THREE.Vector3(),frame=0;
+const origin=new THREE.Vector3(-5.6,2.5,0);
+const plane=new THREE.Plane(new THREE.Vector3(0,0,1),0);
+const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();
+function hud(){$('lv').textContent=`NÍVEL ${level+1}/15`;$('ammo').textContent=`DISPAROS ${shots}/${levels[level][1]}`;$('pts').textContent=`PONTOS ${score}`;}
+function removeObjects(arr){for(const o of arr)scene.remove(o.mesh||o);arr.length=0;}
+function reset(){
+ removeObjects(targets);removeObjects(blocks);removeObjects(debris);
+ shots=0;score=0;ended=false;won=false;drag=false;flying=false;frame=0;
+ scene.remove(ball);ball=makeBall();ball.position.copy(origin);vel.set(0,0,0);
+ // Build structures on the right, growing with level
+ const count=levels[level][0],towers=1+Math.floor(level/5),baseX=3.2;
+ for(let t=0;t<towers;t++){
+  const x=baseX+t*3.0,rows=2+Math.floor(level/3);
+  for(let r=0;r<rows;r++){
+   const g=new THREE.BoxGeometry(.62,.8,.8);
+   const material=level>5&&r%2?stone:wood;
+   const mesh=new THREE.Mesh(g,material);mesh.position.set(x,0.2+r*.82,0);mesh.castShadow=true;mesh.receiveShadow=true;scene.add(mesh);
+   blocks.push({mesh,hp:level>7?2:1,alive:true,vx:0,vy:0});
+  }
+  const top=new THREE.Mesh(new THREE.BoxGeometry(2.25,.35,.85),level>4?stone:wood);
+  top.position.set(x,rows*.82+.4,0);top.castShadow=true;scene.add(top);blocks.push({mesh:top,hp:level>8?2:1,alive:true,vx:0,vy:0});
+ }
+ for(let i=0;i<count;i++){
+  const t=i%towers,row=Math.floor(i/towers);
+  const geo=new THREE.SphereGeometry(.43,24,18);
+  const material=mat(i%3===0?0x65e5d0:i%3===1?0xff8e6b:0xffcf4d,.38);
+  const mesh=new THREE.Mesh(geo,material);
+  mesh.position.set(baseX+t*3.0+(row%2)*.35,.72+row*.92,.55);
+  mesh.castShadow=true;scene.add(mesh);
+  const eyeMat=mat(0x17324a);
+  for(const ex of [-.14,.14]){
+   const eye=new THREE.Mesh(new THREE.SphereGeometry(.055,8,8),eyeMat);
+   eye.position.set(ex,.09,.37);mesh.add(eye);
+  }
+  targets.push({mesh,hp:1+Math.floor(level/8),alive:true});
+ }
+ ball.position.copy(origin);hud();
+}
+function show(title,msg,success){
+ active=false;ended=true;won=success;
+ $('title').innerHTML=title;$('mission').textContent=msg;
+ $('desc').textContent=success?'Boa! A tua pontuação foi '+score+'.':'Podes repetir o nível e experimentar outra trajetória.';
+ play.classList.toggle('hide',success&&level===14);
+ next.classList.toggle('hide',!success||level===14);
+ retry.classList.remove('hide');menu.classList.remove('hide');
+}
+function start(){menu.classList.add('hide');active=true;reset();$('hint').textContent='Arrasta a bola dourada para trás e larga para lançar';}
+play.addEventListener('click',()=>{level=0;start();});
+next.addEventListener('click',()=>{level=Math.min(14,level+1);start();});
+retry.addEventListener('click',()=>start());
+function screenToPlane(e){const r=renderer.domElement.getBoundingClientRect();pointer.x=((e.clientX-r.left)/r.width)*2-1;pointer.y=-((e.clientY-r.top)/r.height)*2+1;raycaster.setFromCamera(pointer,camera);const p=new THREE.Vector3();raycaster.ray.intersectPlane(plane,p);return p;}
+renderer.domElement.addEventListener('pointerdown',e=>{
+ if(!active||ended||flying)return;
+ const p=screenToPlane(e);
+ if(p.distanceTo(ball.position)<1.25){drag=true;renderer.domElement.setPointerCapture(e.pointerId);}
+});
+renderer.domElement.addEventListener('pointermove',e=>{
+ if(!drag)return;
+ let p=screenToPlane(e);p.z=0;
+ const d=p.clone().sub(origin);if(d.length()>2.6)d.setLength(2.6);
+ ball.position.copy(origin).add(d);drawBand();
+});
+renderer.domElement.addEventListener('pointerup',()=>{
+ if(!drag)return;drag=false;
+ const d=origin.clone().sub(ball.position);
+ if(d.length()<.15){ball.position.copy(origin);return;}
+ vel.set(d.x*3.6,d.y*3.6,0);flying=true;shots++;hud();
+});
+function drawBand(){
+ if(band)scene.remove(band);
+ band=cylinderBetween(origin,ball.position,.045,bandmat);
+}
+function burst(pos,color){
+ for(let i=0;i<9;i++){
+  const mesh=new THREE.Mesh(new THREE.BoxGeometry(.12,.12,.12),mat(color));
+  mesh.position.copy(pos);scene.add(mesh);
+  debris.push({mesh,v:new THREE.Vector3((Math.random()-.5)*5,Math.random()*4,(Math.random()-.5)*3),life:1});
+ }
+}
+function collide(){
+ for(const t of targets){
+  if(!t.alive)continue;
+  if(ball.position.distanceTo(t.mesh.position)<.85){
+   t.hp--;score+=100;burst(t.mesh.position,0xffd45e);
+   if(t.hp<=0){t.alive=false;scene.remove(t.mesh);score+=200;}
+   vel.multiplyScalar(.65);hud();
+  }
+ }
+ for(const b of blocks){
+  if(!b.alive)continue;
+  if(ball.position.distanceTo(b.mesh.position)<.9){
+   b.hp--;score+=30;burst(b.mesh.position,b.mesh.material===stone?0xc0cbd7:0xc88a52);
+   b.vx=vel.x*.14;b.vy=Math.abs(vel.y)*.3+1;
+   vel.x*=-.48;vel.y=Math.abs(vel.y)*.4;
+   if(b.hp<=0){b.alive=false;scene.remove(b.mesh);score+=50;}
+   hud();
+  }
+ }
+}
+function step(){
+ requestAnimationFrame(step);
+ if(active&&!ended){
+  if(flying){
+   frame++;vel.y-=.012;ball.position.add(vel.clone().multiplyScalar(.055));ball.rotation.z-=vel.x*.02;
+   vel.x*=.996;collide();
+   if(ball.position.y<.43){ball.position.y=.43;vel.y=Math.abs(vel.y)*.36;vel.x*=.75;if(vel.y<.4)vel.y=0;}
+   if(ball.position.x>20||ball.position.y<-.5||frame>260){
+    flying=false;ball.position.copy(origin);vel.set(0,0,0);
+    if(targets.every(t=>!t.alive)){show(level===14?'CAMPEÃO AURIX!':'NÍVEL CONCLUÍDO!',`Objetivo concluído! Destruíste todos os ${levels[level][0]} alvos.`,true);}
+    else if(shots>=levels[level][1])show('TENTA NOVAMENTE',`Objetivo: destruir ${levels[level][0]} alvos. Ainda há alvos por derrotar.`,false);
+    hud();
+   }
+  }
+  for(const b of blocks)if(b.alive&&(Math.abs(b.vx)+Math.abs(b.vy)>.03)){
+   b.mesh.position.x+=b.vx*.035;b.mesh.position.y+=b.vy*.035;b.vy-=.025;b.vx*=.98;
+   if(b.mesh.position.y<.3){b.mesh.position.y=.3;b.vy=0;b.vx*=.65;}
+  }
+  for(const p of debris){p.mesh.position.add(p.v.clone().multiplyScalar(.04));p.v.y-=.08;p.life-=.025;p.mesh.material.transparent=true;p.mesh.material.opacity=Math.max(0,p.life);if(p.life<=0)scene.remove(p.mesh);}
+  debris=debris.filter(p=>p.life>0);
+ }
+ renderer.render(scene,camera);
+}
+function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);}
+addEventListener('resize',resize);
+camera.position.set(0,7,19);camera.lookAt(0,3,0);
+reset();menu.classList.remove('hide');step();
+})();
+</script>
+</body>
+</html>
